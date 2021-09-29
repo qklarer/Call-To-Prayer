@@ -1,0 +1,2 @@
+Offline script debugging started at 09/09/2021 10:14:32Refresh Triggered on 10:14
+Error running Timer API event handler:...g/Symetrix/Composer 8.1/Scripts/Call To Prayer V1-69.lua:133: attempt to index a nil value (local 'Timezone')
