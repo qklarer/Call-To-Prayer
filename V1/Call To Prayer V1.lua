@@ -1,4 +1,4 @@
-debug = true
+debug = false
 json = require('json')
 Count = 0
 End_Point_URL = "http://api.aladhan.com"
@@ -10,6 +10,7 @@ Start = true
 Locked_Time = false
 Refresh_Time = NamedControl.GetText("Refresh_Time")
 Timer_Speed = 5
+NamedControl.SetPosition("Connected", 0)
 
 --Used to assign numeric values to Prayers. Ex. Controls.Outputs["Some prayer number related to an output pin"].Value
 Current_Prayer =
@@ -25,13 +26,30 @@ Current_Prayer =
     Midnight = {Active = true, index = 9}
 }
 
---First HTTP call using local time based off of DSP time.
+--First HTTP call using local time based on DSP time.
 function Get_Prayer_Time()
 
+    local Latitude = NamedControl.GetText("Latitude")
+    local Longitude = NamedControl.GetText("Longitude")
+
+    if Latitude ~= Latitude_State or Longitude ~= Longitude_State then
+        Latitude_State = Latitude
+        Longitude_State = Longitude
+        Start = true
+    end
+
     if Start == true then
-        print("Refresh Triggered on " .. (os.date("%H:%M")))
-        local Latitude = NamedControl.GetText("Latitude")
-        local Longitude = NamedControl.GetText("Longitude")
+        if debug then print("Refresh Triggered on " .. (os.date("%H:%M"))) end
+
+        --If blank, set to Symetrix HQ time.
+        if Latitude == "" then
+            Latitude = "47.80296909243"
+        end
+
+        if Longitude == "" then
+            Longitude = "-122.3204713578"
+        end
+
         local Time_Url = HttpClient.DecodeString(HttpClient.CreateUrl({
         Host = End_Point_URL,
         Path = "v1/timings/" .. (os.date('%d-%m-%Y')) .. "?latitude=" .. Latitude .. "&longitude=" .. Longitude .. "&method=2"}))
@@ -41,6 +59,7 @@ function Get_Prayer_Time()
         Data = "",
         Method = "GET",
         EventHandler = Get_Prayer_Time_Response})
+
         Start = false
     else
         Notification(Prayer_decodedJSON)
@@ -54,83 +73,93 @@ function Get_Prayer_Time_Response(Table, ReturnCode, Data, Error, Headers)
     Notification(Prayer_decodedJSON)
 
     if debug then 
-        --print(ReturnCode)
-        --print(Data)
+        print(ReturnCode)
+        print(Data)
+        print(Table)
+        print(Error)
+        print(Headers)
     end
 end
 
+
+--Updates and triggers prayer times.
 function Notification(Times)
     
     Get_Time_stamp(Times)
-    local Prayer_Times =
-    {
-        Fajr = (Times.data.timings.Fajr),
-        Sunrise = (Times.data.timings.Sunrise),
-        Dhuhr = (Times.data.timings.Dhuhr),
-        Asr = (Times.data.timings.Asr),
-        Sunset = (Times.data.timings.Sunset),
-        Maghrib = (Times.data.timings.Maghrib),
-        Isha = (Times.data.timings.Isha),
-        Imsak = (Times.data.timings.Imsak),
-        Midnight = (Times.data.timings.Midnight)
-    }
+    if c then 
+        local Prayer_Times =
+        {
+            Fajr = (Times.data.timings.Fajr),
+            Sunrise = (Times.data.timings.Sunrise),
+            Dhuhr = (Times.data.timings.Dhuhr),
+            Asr = (Times.data.timings.Asr),
+            Sunset = (Times.data.timings.Sunset),
+            Maghrib = (Times.data.timings.Maghrib),
+            Isha = (Times.data.timings.Isha),
+            Imsak = (Times.data.timings.Imsak),
+            Midnight = (Times.data.timings.Midnight)
+        }
 
-    -- Ability to use hardcoded times for debugging.
-    -- local Prayer_Times =
-    -- {
-    --     Fajr = "15:13",
-    --     Sunrise = "15:15",
-    --     Dhuhr = "15:17",
-    --     Asr = "15:19",
-    --     Sunset = "15:21",
-    --     Maghrib = "15:23",
-    --     Isha = "15:25",
-    --     Imsak = "15:27",
-    --     Midnight = "15:29"
-    -- }
+        -- Ability to use hardcoded times for debugging.
+        -- local Prayer_Times =
+        -- {
+        --     Fajr = "13:56",
+        --     Sunrise = "13:42",
+        --     Dhuhr = "13:44",
+        --     Asr = "13:46",
+        --     Sunset = "13:48",
+        --     Maghrib = "13:50",
+        --     Isha = "13:52",
+        --     Imsak = "13:54",
+        --     Midnight = "13:56"
+        -- }
 
-    --Takes prayer times and prints them to labels in module.
-    for k,v in pairs(Prayer_Times) do
-        NamedControl.SetText(tostring(k), v)
+        --Takes prayer times and prints them to labels in module.
+        for k,v in pairs(Prayer_Times) do
+            NamedControl.SetText(tostring(k), v)
 
-        --If a time is equal to the OS time, store it in a variable for future use.
-        if v == (os.date("%H:%M")) then
-            Active_Prayer = k
+            --If a time is equal to the OS time, store it in a variable for future use.
+            if v == (os.date("%H:%M")) then
+                Active_Prayer = k
+            end
         end
-    end
 
-    --Checks what output pin that prayer is assosiated with and turns it on and off based on the duration time in module.
-    for k,v in pairs(Current_Prayer) do
-        if k == Active_Prayer then
+        --Checks what output pin that prayer is assosiated with and turns it on and off based on the duration time in module.
+        for k,v in pairs(Current_Prayer) do
+            if k == Active_Prayer then
 
-            for k,v in pairs(Disabled) do
-
-                if v.index == 1 then
-                    Current_Prayer[k].Active = false
-                elseif v.index == 0 then
-                    Current_Prayer[k].Active = true
+                for k,v in pairs(Disabled) do
+                    --If the disabled button is active for a specific prayer then do not use it.
+                    if v.index == 1 then
+                        Current_Prayer[k].Active = false
+                    elseif v.index == 0 then
+                        Current_Prayer[k].Active = true
+                    end
                 end
-            end
 
-            --Takes a current timestamp and stores it until total duration time is over.
-            if Locked_Time == false then
-                local Duration = (tonumber(NamedControl.GetText(k .. "Dur")) * 60) --Multiply by 60 to convert seconds to minutes.
-                Total_Duration = Duration + tonumber(Time_Stamp)
-                Locked_Time = true
-                
-                --Sets the Active Prayers pin to 1.
-                if tonumber(Time_Stamp) < Total_Duration and v.Active == true  then
-                    Controls.Outputs[v.index].Value = 1
-                    print(k .. " Triggered on " .. (os.date("%H:%M:%S")))
+                --Takes a current timestamp and stores it until total duration time is over.
+                if Locked_Time == false then
+                    if NamedControl.GetText(k .. "Dur") == "" then NamedControl.SetText(k .. "Dur", 0) end
+
+                    local Duration = (tonumber(NamedControl.GetText(k .. "Dur")) * 60) --Multiply by 60 to convert seconds to minutes.
+                    Total_Duration = Duration + tonumber(Time_Stamp)
+                    Locked_Time = true
+                    
+                    --Sets the Active Prayers pin to 1.
+                    if tonumber(Time_Stamp) < Total_Duration and v.Active == true  then
+                        Controls.Outputs[v.index].Value = 1
+                        if debug then print(k .. " Triggered on " .. (os.date("%H:%M:%S"))) end
+                    end
                 end
-            end
 
-            --Sets active Prayers pin to 0.
-            if tonumber(Time_Stamp) > Total_Duration then
-                Controls.Outputs[v.index].Value = 0
-                print(k .. " Triggered off " .. (os.date("%H:%M:%S")))
-                Locked_Time = false
-                Active_Prayer = nil
+                --Sets active Prayers pin to 0.
+                if tonumber(Time_Stamp) > Total_Duration then
+                    Controls.Outputs[v.index].Value = 0
+                    if debug then print(k .. " Triggered off " .. (os.date("%H:%M:%S"))) end
+
+                    Locked_Time = false
+                    Active_Prayer = nil
+                end
             end
         end
     end
@@ -140,17 +169,31 @@ end
 function Get_Time_stamp(Timezone)
 
     if Timezone ~= nil then
-        local Timezone = Timezone.data.meta.timezone
 
-        local Time_stamp_Url = HttpClient.DecodeString(HttpClient.CreateUrl({
-        Host = End_Point_URL,
-        Path = "v1/currentTimestamp?zone=" .. Timezone}))
+        --Makes sure Timezone.data.meta.timezone is not nil, it would be nil if an invalid long or lat was used. 
+        function Check_Test()
+            Timezone_Test = Timezone.data.meta.timezone
+            return Timezone_Test
+        end
 
-        HttpClient.Upload({
-        Url = Time_stamp_Url,
-        Data = "",
-        Method = "GET",
-        EventHandler = Get_Time_Stamp_Response})
+        if pcall(Check_Test) then
+
+            local Timezone = Timezone.data.meta.timezone
+
+            local Time_stamp_Url = HttpClient.DecodeString(HttpClient.CreateUrl({
+            Host = End_Point_URL,
+            Path = "v1/currentTimestamp?zone=" .. Timezone}))
+
+            HttpClient.Upload({
+            Url = Time_stamp_Url,
+            Data = "",
+            Method = "GET",
+            EventHandler = Get_Time_Stamp_Response})
+            c = true
+        else
+            c = false
+            NamedControl.SetText("Time_Stamp", "Location not valid.")
+        end
     end
 end
 
@@ -160,8 +203,11 @@ function Get_Time_Stamp_Response(Table, ReturnCode, Data, Error, Headers)
     Time_Stamps(Time_Stamp_decodedJSON)
     
     if debug then
-        --print(ReturnCode) 
-        --print(Data)
+        print(ReturnCode) 
+        print(Data)
+        print(Error)
+        print(Table)
+        print(Headers)
     end
 
     if (200 == ReturnCode or ReturnCode == 201) then
@@ -175,6 +221,7 @@ end
 function Time_Stamps(Time)
 
     Time_Stamp = Time.data
+
     NamedControl.SetText("Time_Stamp", "Unix Time Stamp: " .. Time_Stamp)
     NamedControl.SetText("Current_Time", (os.date("%H:%M")))
 end
